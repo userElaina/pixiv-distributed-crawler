@@ -29,7 +29,10 @@
 
 *.html
 *.bin
+*.db
+test.sql
 
 archive/
-*/temp/
+tmp/
+temp/
 tempCodeRunnerFile.*
