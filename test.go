@@ -6,14 +6,13 @@ import (
 
 func main() {
 	ch := make(chan int)
-	mian := pic.DefaultInfoMuti("./tmp", ch)
-	// mian := pic.NewInfoMuti(1, 256, "./tmp", ch)
+	// mian := pic.DefaultMuti("./tmp", ch)
+	mian := pic.NewMuti(2, 4, 5, "./tmp", ch)
 	mian.MutiThread()
-	// ch <- 86498318
-	// ch <- 87011701
-	// ch <- 100480461
-	// ch <- 101034134
-	ch <- 101036399
+	ch <- 86498318
+	ch <- 87011701
+	ch <- 100480461
+	ch <- 101034134
 	ch <- -1
 	mian.Join()
 }

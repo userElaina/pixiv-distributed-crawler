@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type InfoPic struct {
@@ -20,13 +21,13 @@ type InfoPic struct {
 	stat      int
 	views     int
 	bookmark  int
-	count     int
+	likes     int
 	timestamp int
 	title     string
 	maps      map[string]string
 }
 
-func getter(sid string, client *http.Client) func(s string) io.ReadCloser {
+func getter(sid string, retry int, client *http.Client) func(s string) io.ReadCloser {
 	header := DefaultHeader()
 	header.Add("referer", "https://www.pixiv.net/member_illust.php?mode=medium&illust_id="+sid)
 	header.Add("accept-language", "en")
@@ -38,9 +39,17 @@ func getter(sid string, client *http.Client) func(s string) io.ReadCloser {
 			URL:    ur,
 			Header: *header,
 		}
-		res, err := client.Do(request)
-		if err != nil {
-			fmt.Println(err)
+		res, e := client.Do(request)
+		for i := 0; i < retry; i++ {
+			if e == nil {
+				break
+			}
+			time.Sleep(time.Second)
+			fmt.Println("RETRY", sid, i+1)
+			res, e = client.Do(request)
+		}
+		if e != nil {
+			fmt.Println(e)
 			return nil
 		}
 		return res.Body
@@ -62,11 +71,11 @@ func filer(dir string) func(string, io.Reader) error {
 	}
 }
 
-func Crawl(pid int, dir string, client *http.Client) (ans InfoPic, e error) {
+func Crawl(pid, retry int, dir string, client *http.Client) (ans InfoPic, e error) {
 	ans.maps = make(map[string]string)
 	sid := fmt.Sprintf("%d", pid)
 
-	f := getter(sid, client)
+	f := getter(sid, retry, client)
 	g := filer(filepath.Join(dir, sid))
 
 	infoBody := f("https://www.pixiv.net/touch/ajax/illust/details?illust_id=" + sid)
@@ -133,8 +142,8 @@ func Crawl(pid int, dir string, client *http.Client) (ans InfoPic, e error) {
 	// bookmark INTEGER NOT NULL
 	ans.bookmark = int(detail["bookmark_user_total"].(float64))
 
-	// count INTEGER NOT NULL
-	ans.count, e = strconv.Atoi(detail["rating_count"].(string))
+	// likes INTEGER NOT NULL
+	ans.likes, e = strconv.Atoi(detail["rating_count"].(string))
 	if e != nil {
 		return
 	}

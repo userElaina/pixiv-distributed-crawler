@@ -3,6 +3,8 @@ package pic
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -36,24 +38,35 @@ func (me *Queue) Pop(c chan int) {
 
 type InfoMuti struct {
 	flag         bool
-	lock         *sync.Mutex
+	flagLock     *sync.Mutex
+	db           *datas
 	maxThread    int
 	maxClientUse int
+	retry        int
 	dir          string
 	popchan      chan int
 	waitchan     chan int
 }
 
-func NewInfoMuti(maxThread, maxClientUse int, dir string, ch chan int) *InfoMuti {
+func NewMuti(maxThread, maxClientUse, retry int, dir string, ch chan int) *InfoMuti {
+	os.MkdirAll(dir, 0644)
+
+	db := newDatas(filepath.Join(dir, "info.db"))
+	e := db.initDB()
+	if e != nil {
+		fmt.Println(e)
+	}
+
 	q := &Queue{&sync.Mutex{}, []int{}}
 	go q.Push(ch)
 	popchan := make(chan int)
 	go q.Pop(popchan)
-	return &InfoMuti{false, &sync.Mutex{}, maxThread, maxClientUse, dir, popchan, make(chan int)}
+
+	return &InfoMuti{false, &sync.Mutex{}, db, maxThread, maxClientUse, retry, dir, popchan, make(chan int)}
 }
 
-func DefaultInfoMuti(dir string, ch chan int) *InfoMuti {
-	return NewInfoMuti(runtime.NumCPU(), 16, dir, ch)
+func DefaultMuti(dir string, ch chan int) *InfoMuti {
+	return NewMuti(runtime.NumCPU(), 16, 5, dir, ch)
 }
 
 func (me *InfoMuti) aThread(n int) {
@@ -65,7 +78,7 @@ func (me *InfoMuti) aThread(n int) {
 			flg := false
 			pid := 0
 
-			me.lock.Lock()
+			me.flagLock.Lock()
 			if me.flag {
 				flg = true
 			} else {
@@ -75,20 +88,25 @@ func (me *InfoMuti) aThread(n int) {
 					flg = true
 				}
 			}
-			me.lock.Unlock()
+			me.flagLock.Unlock()
 
 			if flg {
 				fmt.Println(n, "READY TO END")
 				me.waitchan <- n
-				// fmt.Println(n, "END")
 				return
 			}
 			fmt.Println(n, "GET", pid)
-			result, err := Crawl(pid, me.dir, client)
-			if err != nil {
-				fmt.Println(n, err)
+			result, e := Crawl(pid, me.retry, me.dir, client)
+			if e != nil {
+				fmt.Println(n, "ERR", e)
 			} else {
-				fmt.Println(n, result)
+				fmt.Println(n, "SUCC", result)
+				// me.dbLock.Lock()
+				e = me.db.loadInfoPic(&result)
+				// me.dbLock.Unlock()
+				if e != nil {
+					fmt.Println(n, "ERR", e)
+				}
 			}
 		}
 	}
@@ -101,14 +119,15 @@ func (me *InfoMuti) MutiThread() {
 }
 
 func (me *InfoMuti) Kill() {
-	me.lock.Lock()
+	me.flagLock.Lock()
 	me.flag = true
-	me.lock.Unlock()
+	me.flagLock.Unlock()
 }
 
 func (me *InfoMuti) Join() {
 	for i := 0; i < me.maxThread; i++ {
-		x := <- me.waitchan
+		x := <-me.waitchan
 		fmt.Println(x, "END")
 	}
+	me.db.Close()
 }
